@@ -1,0 +1,32 @@
+[project]
+name = "bio-view-backend"
+version = "0.1.0"
+description = "bio-view backend: ingest, retrieval, and QA over bioRxiv/medRxiv"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sse-starlette>=2.1",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.4",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "boto3>=1.34",
+    "chromadb>=0.5",
+    "sentence-transformers>=3.0",
+    "torch>=2.2",
+    "lxml>=5.2",
+    "apscheduler>=3.10",
+    "httpx>=0.27",
+    "openai>=1.0",
+]
+
+[project.scripts]
+bio-view-ingest = "app.ingest.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
