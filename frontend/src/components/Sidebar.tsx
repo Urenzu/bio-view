@@ -142,6 +142,9 @@ export function Sidebar({
   isOpen: boolean;
 }) {
   const [convs, setConvs] = useState<ConvSummary[]>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch("/conversations")
@@ -167,6 +170,19 @@ export function Sidebar({
     });
   };
 
+  const openSearch = () => {
+    setSearchOpen(true);
+    setTimeout(() => searchRef.current?.focus(), 0);
+  };
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setQuery("");
+  };
+
+  const q = query.trim().toLowerCase();
+  const filtered = q ? convs.filter((c) => c.title.toLowerCase().includes(q)) : null;
+
   const pinned = convs.filter((c) => c.pinned);
   const unpinned = convs.filter((c) => !c.pinned);
   const dateGroups = groupByDate(unpinned);
@@ -186,6 +202,23 @@ export function Sidebar({
         <button className="sidebar-new-btn" onClick={onNewChat}>
           + New chat
         </button>
+        {searchOpen ? (
+          <div className="sidebar-search-row">
+            <input
+              ref={searchRef}
+              className="sidebar-search-input"
+              placeholder="Search…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Escape" && closeSearch()}
+              onBlur={() => setTimeout(closeSearch, 100)}
+            />
+          </div>
+        ) : (
+          <button className="sidebar-search-btn" onClick={openSearch}>
+            / Search
+          </button>
+        )}
       </div>
 
       <nav className="sidebar-convs">
@@ -196,19 +229,30 @@ export function Sidebar({
           <p className="sidebar-hint">No conversations yet.</p>
         )}
 
-        {pinned.length > 0 && (
+        {filtered ? (
           <div className="sidebar-group">
-            <div className="sidebar-group-label">Pinned</div>
-            {pinned.map((c) => <ConvItem {...itemProps(c)} />)}
+            <div className="sidebar-group-label">{filtered.length} result{filtered.length !== 1 ? "s" : ""}</div>
+            {filtered.length === 0
+              ? <p className="sidebar-hint">No matches.</p>
+              : filtered.map((c) => <ConvItem {...itemProps(c)} />)
+            }
           </div>
+        ) : (
+          <>
+            {pinned.length > 0 && (
+              <div className="sidebar-group">
+                <div className="sidebar-group-label">Pinned</div>
+                {pinned.map((c) => <ConvItem {...itemProps(c)} />)}
+              </div>
+            )}
+            {dateGroups.map(({ label, items }) => (
+              <div key={label} className="sidebar-group">
+                <div className="sidebar-group-label">{label}</div>
+                {items.map((c) => <ConvItem {...itemProps(c)} />)}
+              </div>
+            ))}
+          </>
         )}
-
-        {dateGroups.map(({ label, items }) => (
-          <div key={label} className="sidebar-group">
-            <div className="sidebar-group-label">{label}</div>
-            {items.map((c) => <ConvItem {...itemProps(c)} />)}
-          </div>
-        ))}
       </nav>
     </aside>
   );

@@ -147,6 +147,47 @@ input, textarea { font: inherit; color: inherit; }
   background: var(--accent-soft);
 }
 
+.sidebar-search-btn {
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--fg-dim);
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: left;
+}
+.sidebar-search-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.sidebar-search-row {
+  margin-top: 6px;
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+}
+.sidebar-search-input {
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 8px 12px;
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  outline: none;
+}
+.sidebar-search-input::placeholder {
+  color: var(--accent);
+  opacity: 0.5;
+}
+
 .sidebar-convs {
   flex: 1;
   overflow-y: auto;
