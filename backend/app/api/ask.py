@@ -148,6 +148,7 @@ async def ask(req: AskRequest, session_token: str | None = Cookie(default=None))
                     embedding_model_id=embedding.model_id,
                     reranker_model_id=reranker.model_id,
                     retrieved_doi_versions=retrieved,
+                    hits_json=[h.to_dict() for h in hits],
                 )
             )
 

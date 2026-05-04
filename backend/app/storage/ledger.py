@@ -83,6 +83,7 @@ class Message(Base):
     embedding_model_id = Column(String)
     reranker_model_id = Column(String)
     retrieved_doi_versions = Column(JSON)
+    hits_json = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
