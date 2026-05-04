@@ -20,6 +20,7 @@ Local-first biomedical preprint search and QA over bioRxiv / medRxiv.
 ```bash
 cp .env.example .env
 # Fill in AWS_ACCESS_KEY, AWS_SECRET_ACCESS_KEY, OPENROUTER_API_KEY
+# Fill in SECRET_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI
 
 docker compose up --build
 ```
@@ -40,7 +41,7 @@ uv sync
 uv pip install --upgrade torch --index-url https://download.pytorch.org/whl/cu121
 uv run uvicorn app.main:app --reload --port 8000
 
-# 3. Frontend (Vite proxies /ask /search /papers /health → :8000)
+# 3. Frontend (Vite proxies /ask /search /papers /health /auth /conversations → :8000)
 cd frontend
 npm install
 npm run dev   # http://localhost:5173
@@ -71,11 +72,22 @@ All knobs live in `backend/app/config.py` and can be overridden with environment
 | `MAX_DAILY_GB` | `50.0` | Requester-Pays byte-cap guardrail |
 | `EARLIEST_YEAR` | `2026` | Only ingest papers from this year onward |
 | `POLL_CRON` | `0 6 1 * *` | Ingest schedule (cron syntax) |
+| `SECRET_KEY` | — | JWT signing key for session tokens |
+| `GOOGLE_CLIENT_ID` | — | Google OAuth2 client ID |
+| `GOOGLE_CLIENT_SECRET` | — | Google OAuth2 client secret |
+| `GOOGLE_REDIRECT_URI` | — | OAuth callback URL (e.g. `http://localhost:8000/auth/google/callback`) |
+
+## Features
+
+- **RAG Q&A** — answers are grounded in retrieved preprint excerpts with inline DOI citations; a sources panel shows ranked hits per answer with title, authors, and excerpt text.
+- **Conversation history** — all Q&A turns (including sources) are persisted in Postgres and fully restored when revisited from the sidebar.
+- **Google OAuth** — sign in with Google; sessions are stored as httpOnly JWT cookies. Anonymous sessions are supported.
+- **Sidebar** — conversations grouped by date (Today / Yesterday / This week / Older), with pin (floats to top by recency), rename (double-click title), and live search.
+- **Adaptive source count** — the number of sources shown is query-dependent, using a top-relative floor + largest-gap cutoff over MedCPT reranker scores.
 
 ## Design notes
 
 - **Ledger-driven idempotency.** The `papers` table tracks `(doi, version, embedded_in[])`; re-running ingest skips already-embedded rows.
 - **Per-model Qdrant collections.** Each embedding model writes to `papers__<safe_model_id>`; swap models without losing the old index.
-- **Adaptive source count.** The sources panel shows a query-dependent number of hits (top-relative floor + largest-gap cutoff over MedCPT scores), not a fixed top-N.
 - **Model provenance.** `(gen_model_id, embedding_model_id, reranker_model_id)` are stored on every saved message.
-- **Conversation persistence.** All Q&A turns are stored in Postgres, keyed by `conversation_id`.
+- **Reranker fallback.** If the MedCPT cross-encoder fails, scores fall back to raw Qdrant vector similarity so queries still return results.
