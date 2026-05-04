@@ -1,6 +1,9 @@
+import logging
 from dataclasses import dataclass, asdict
 
 from qdrant_client.models import FieldCondition, Filter, MatchText
+
+log = logging.getLogger(__name__)
 
 from app.config import settings
 from app.embeddings.base import EmbeddingProvider
@@ -95,7 +98,11 @@ def search(
     docs = [r.payload["text"] for r in results]
     metas = [r.payload for r in results]
 
-    scores = reranker.rerank(query, docs)
+    try:
+        scores = reranker.rerank(query, docs)
+    except Exception:
+        log.warning("reranker failed, falling back to vector similarity scores", exc_info=True)
+        scores = [float(r.score) for r in results]
     ranked = sorted(zip(docs, metas, scores), key=lambda x: x[2], reverse=True)
     ranked = _adaptive_cut(
         ranked,

@@ -48,6 +48,17 @@ export function FilterBar({
   );
 }
 
+function useSubjects(): string[] {
+  const [subjects, setSubjects] = useState<string[]>([]);
+  useEffect(() => {
+    fetch("/subjects")
+      .then((r) => r.ok ? r.json() : [])
+      .then((data: string[]) => setSubjects(data))
+      .catch(() => {});
+  }, []);
+  return subjects;
+}
+
 function SubjectsPill({
   value,
   onChange,
@@ -58,11 +69,12 @@ function SubjectsPill({
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
+  const availableSubjects = useSubjects();
 
   useOutsideClick(wrapRef, () => setOpen(false), open);
 
-  const add = () => {
-    const t = draft.trim();
+  const add = (subject?: string) => {
+    const t = (subject ?? draft).trim();
     if (t && !value.includes(t)) onChange([...value, t]);
     setDraft("");
   };
@@ -81,6 +93,7 @@ function SubjectsPill({
           <label>Add subject</label>
           <input
             autoFocus
+            list="subjects-list"
             placeholder="e.g. Cancer Biology"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -91,6 +104,11 @@ function SubjectsPill({
               }
             }}
           />
+          <datalist id="subjects-list">
+            {availableSubjects
+              .filter((s) => !value.includes(s))
+              .map((s) => <option key={s} value={s} />)}
+          </datalist>
           {value.length > 0 && (
             <div className="filter-tags">
               {value.map((s) => (

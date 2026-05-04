@@ -15,6 +15,7 @@ function filtersToReq(f: FilterState): Partial<AskRequest> {
 export function ChatView() {
   const [filters, setFilters] = useState<FilterState>(defaultFilterState());
   const [turns, setTurns] = useState<Turn[]>([]);
+  const [conversationId, setConversationId] = useState<number | null>(null);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -64,9 +65,10 @@ export function ChatView() {
 
     try {
       await streamAsk(
-        { query: q, ...filtersToReq(filters) },
+        { query: q, conversation_id: conversationId ?? undefined, ...filtersToReq(filters) },
         (ev) => {
-          if (ev.event === "hits") patchAssistant({ hits: ev.data as Hit[] });
+          if (ev.event === "conversation") setConversationId(ev.data.conversation_id);
+          else if (ev.event === "hits") patchAssistant({ hits: ev.data as Hit[] });
           else if (ev.event === "token") appendContent(ev.data);
           else if (ev.event === "error") patchAssistant({ error: ev.data.message });
         },

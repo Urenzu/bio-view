@@ -56,6 +56,7 @@ def _should_skip_state(state: MecaState | None, embedding_model_id: str) -> bool
         return True
     if state.status == "failed" and state.attempt_count >= settings.max_retry_attempts:
         return True
+    # "ingesting" means a prior run crashed mid-flight — retry it
     return False
 
 
@@ -299,6 +300,17 @@ def run_ingest(
             continue
         if _should_skip_state(state, embedding.model_id):
             continue
+
+        with session_scope() as session:
+            state = session.query(MecaState).filter_by(meca_key=key).first()
+            if state is None:
+                session.add(MecaState(
+                    meca_key=key, source=source, status="ingesting",
+                    attempt_count=1, last_attempt_at=datetime.utcnow(),
+                ))
+            else:
+                state.status = "ingesting"
+                state.last_attempt_at = datetime.utcnow()
 
         try:
             bytes_dl, paper_id = _ingest_one(source, bucket, key, embedding)

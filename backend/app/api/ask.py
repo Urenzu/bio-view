@@ -53,10 +53,16 @@ SYSTEM_PROMPT = (
     "(effect sizes, definitions).\n"
 )
 
+# ~12k chars leaves ample room for the system prompt + a full LLM response within
+# most 8k-token context windows (1 token ≈ 4 chars).
+_CONTEXT_BUDGET_CHARS = 12_000
+_PER_PAPER_CHARS = 3_000
+
+
 def _build_prompt(query: str, hits) -> str:
     # Group chunks by DOI so multiple excerpts from the same paper are presented
     # as one context block, preventing the LLM from treating each chunk as a
-    # separate paper.
+    # separate paper. Hits arrive sorted best-first; insertion order preserves that.
     seen: dict[str, dict] = {}
     for h in hits:
         if h.doi not in seen:
@@ -64,10 +70,15 @@ def _build_prompt(query: str, hits) -> str:
         seen[h.doi]["texts"].append(h.text)
 
     blocks = []
+    total = 0
     for doi, entry in seen.items():
+        if total >= _CONTEXT_BUDGET_CHARS:
+            break
         h = entry["h"]
-        combined = "\n\n".join(entry["texts"])
-        blocks.append(f"[DOI:{doi}] {h.title}\n{combined}")
+        combined = "\n\n".join(entry["texts"])[:_PER_PAPER_CHARS]
+        block = f"[DOI:{doi}] {h.title}\n{combined}"
+        blocks.append(block)
+        total += len(block)
 
     ctx = "\n\n---\n\n".join(blocks) if blocks else "(no relevant context found)"
     return f"Context:\n{ctx}\n\nQuestion: {query}\n\nAnswer with citations:"
