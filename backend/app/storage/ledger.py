@@ -10,6 +10,16 @@ from app.config import settings
 Base = declarative_base()
 
 
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True)
+    email = Column(String, nullable=False, unique=True, index=True)
+    name = Column(String, default="")
+    picture = Column(String, default="")
+    google_sub = Column(String, unique=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class Paper(Base):
     __tablename__ = "papers"
     id = Column(Integer, primary_key=True)
@@ -58,6 +68,7 @@ class IngestRun(Base):
 class Conversation(Base):
     __tablename__ = "conversations"
     id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)  # null = anonymous
     created_at = Column(DateTime, default=datetime.utcnow)
     title = Column(String)
 

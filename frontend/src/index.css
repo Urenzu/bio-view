@@ -57,7 +57,16 @@ input, textarea { font: inherit; color: inherit; }
 .app {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
+  position: relative;
+}
+
+.auth-corner {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  z-index: 50;
 }
 
 .topbar {
@@ -88,6 +97,11 @@ input, textarea { font: inherit; color: inherit; }
   text-shadow: 0 0 12px rgba(122, 162, 247, 0.5);
 }
 
+.brand-sep {
+  color: var(--border-strong);
+  font-weight: 300;
+}
+
 .topbar-meta {
   font-family: "Geist Mono", monospace;
   font-size: 11px;
@@ -107,6 +121,122 @@ input, textarea { font: inherit; color: inherit; }
 }
 
 /* ============================================================ */
+/* Auth                                                         */
+/* ============================================================ */
+
+.auth-loading {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg-elev);
+}
+
+.auth-signin {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--fg-dim);
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-decoration: none;
+  text-transform: uppercase;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.auth-signin:hover {
+  color: var(--fg);
+  border-color: rgba(255, 255, 255, 0.25);
+  background: var(--bg-elev);
+}
+
+.auth-user {
+  position: relative;
+}
+.auth-avatar-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+.auth-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  display: block;
+}
+.auth-avatar-fallback {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elev);
+  color: var(--fg-dim);
+  font-family: "Geist Mono", monospace;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-transform: uppercase;
+}
+.auth-avatar-btn:hover .auth-avatar,
+.auth-avatar-btn:hover .auth-avatar-fallback {
+  border-color: var(--accent-line);
+}
+
+.auth-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  min-width: 200px;
+  padding: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7);
+  z-index: 100;
+}
+.auth-menu-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.auth-menu-email {
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  color: var(--fg-muted);
+  margin-bottom: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.auth-menu-logout {
+  width: 100%;
+  padding: 7px 10px;
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--fg-dim);
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: center;
+}
+.auth-menu-logout:hover {
+  color: var(--error);
+  border-color: rgba(248, 113, 113, 0.3);
+  background: var(--error-soft);
+}
+
+/* ============================================================ */
 /* Chat shell                                                   */
 /* ============================================================ */
 
@@ -117,6 +247,8 @@ input, textarea { font: inherit; color: inherit; }
   align-items: center;
   padding: 0 28px;
   min-height: 0;
+  overflow: hidden;
+  width: 100%;
 }
 
 .chat {

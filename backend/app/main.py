@@ -12,6 +12,7 @@ from app.ingest.poller import start_scheduler, stop_scheduler
 from app.api import search as search_api
 from app.api import ask as ask_api
 from app.api import papers as papers_api
+from app.api import auth as auth_api
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,6 +34,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="bio-view", lifespan=lifespan)
 
+app.include_router(auth_api.router, tags=["auth"])
 app.include_router(search_api.router, tags=["search"])
 app.include_router(ask_api.router, tags=["ask"])
 app.include_router(papers_api.router, tags=["papers"])

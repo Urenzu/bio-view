@@ -43,6 +43,14 @@ class Settings(BaseSettings):
     qdrant_url: str = Field(default="http://localhost:6333", alias="QDRANT_URL")
     qdrant_api_key: str = Field(default="", alias="QDRANT_API_KEY")
 
+    # Auth — SECRET_KEY signs JWT sessions; Google OAuth for login
+    secret_key: str = Field(default="dev-secret-change-in-production", alias="SECRET_KEY")
+    google_client_id: str = Field(default="", alias="GOOGLE_CLIENT_ID")
+    google_client_secret: str = Field(default="", alias="GOOGLE_CLIENT_SECRET")
+    google_redirect_uri: str = Field(
+        default="http://localhost:8000/auth/google/callback",
+        alias="GOOGLE_REDIRECT_URI",
+    )
 
     # Local file storage
     jats_cache_path: Path = PROJECT_ROOT / "data" / "jats"

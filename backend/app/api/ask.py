@@ -1,8 +1,9 @@
 import json
-from fastapi import APIRouter
+from fastapi import APIRouter, Cookie
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+from app.api.auth import decode_user_id
 from app.api.deps import get_embedding, get_llm, get_reranker
 from app.retrieval.filters import build_where
 from app.retrieval.search import search
@@ -85,7 +86,8 @@ def _build_prompt(query: str, hits) -> str:
 
 
 @router.post("/ask")
-async def ask(req: AskRequest):
+async def ask(req: AskRequest, session_token: str | None = Cookie(default=None)):
+    user_id = decode_user_id(session_token)
     embedding = get_embedding()
     reranker = get_reranker()
     llm = get_llm()
@@ -102,7 +104,7 @@ async def ask(req: AskRequest):
 
     with session_scope() as s:
         if req.conversation_id is None:
-            conv = Conversation(title=req.query[:80])
+            conv = Conversation(title=req.query[:80], user_id=user_id)
             s.add(conv)
             s.flush()
             conv_id = conv.id
