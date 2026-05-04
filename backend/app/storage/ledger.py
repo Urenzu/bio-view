@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, DateTime, JSON, Text, UniqueConstraint, create_engine,
+    Boolean, Column, Integer, String, DateTime, JSON, Text, UniqueConstraint, create_engine,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
@@ -71,6 +71,8 @@ class Conversation(Base):
     user_id = Column(Integer, index=True)  # null = anonymous
     created_at = Column(DateTime, default=datetime.utcnow)
     title = Column(String)
+    pinned = Column(Boolean, default=False)
+    pinned_at = Column(DateTime, nullable=True)
 
 
 class Message(Base):

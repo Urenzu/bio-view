@@ -5,6 +5,7 @@ type ConvSummary = {
   id: number;
   title: string;
   created_at: string;
+  pinned: boolean;
 };
 
 function groupByDate(convs: ConvSummary[]): { label: string; items: ConvSummary[] }[] {
@@ -38,17 +39,31 @@ function ConvItem({
   selected,
   onSelect,
   onRename,
+  onPin,
 }: {
   conv: ConvSummary;
   selected: boolean;
   onSelect: () => void;
   onRename: (title: string) => void;
+  onPin: () => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [draft, setDraft] = useState(conv.title);
   const inputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
 
   const startEdit = () => {
+    setMenuOpen(false);
     setDraft(conv.title);
     setEditing(true);
     setTimeout(() => inputRef.current?.select(), 0);
@@ -67,7 +82,7 @@ function ConvItem({
 
   if (editing) {
     return (
-      <div className={`sidebar-conv-item ${selected ? "active" : ""} is-editing`}>
+      <div className={`sidebar-conv-row ${selected ? "active" : ""} is-editing`}>
         <input
           ref={inputRef}
           className="sidebar-rename-input"
@@ -82,13 +97,31 @@ function ConvItem({
   }
 
   return (
-    <div
-      className={`sidebar-conv-item ${selected ? "active" : ""}`}
-      onClick={onSelect}
-      onDoubleClick={startEdit}
-      title="Double-click to rename"
-    >
-      {conv.title}
+    <div className={`sidebar-conv-row ${selected ? "active" : ""} ${menuOpen ? "menu-open" : ""}`}>
+      <div
+        className="sidebar-conv-label"
+        onClick={onSelect}
+        onDoubleClick={startEdit}
+      >
+        {conv.title}
+      </div>
+      <div className="sidebar-conv-menu-wrap" ref={menuRef}>
+        <button
+          className="sidebar-conv-dots"
+          onClick={(e) => { e.stopPropagation(); setMenuOpen((o) => !o); }}
+          tabIndex={-1}
+        >
+          ···
+        </button>
+        {menuOpen && (
+          <div className="sidebar-conv-menu">
+            <button onClick={startEdit}>Rename</button>
+            <button onClick={() => { setMenuOpen(false); onPin(); }}>
+              {conv.pinned ? "Unpin" : "Pin"}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -117,17 +150,35 @@ export function Sidebar({
       .catch(() => setConvs([]));
   }, [refreshKey, user]);
 
-  const rename = (id: number, title: string) => {
+  const patch = (id: number, update: Partial<ConvSummary>) => {
     fetch(`/conversations/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title }),
+      body: JSON.stringify(update),
     }).then((r) => {
-      if (r.ok) setConvs((cs) => cs.map((c) => c.id === id ? { ...c, title } : c));
+      if (r.ok) setConvs((cs) => {
+        const updated = cs.map((c) => c.id === id ? { ...c, ...update } : c);
+        // Re-sort: pinned first (by original order from server), unpinned by created_at
+        return [
+          ...updated.filter((c) => c.pinned),
+          ...updated.filter((c) => !c.pinned),
+        ];
+      });
     });
   };
 
-  const groups = groupByDate(convs);
+  const pinned = convs.filter((c) => c.pinned);
+  const unpinned = convs.filter((c) => !c.pinned);
+  const dateGroups = groupByDate(unpinned);
+
+  const itemProps = (c: ConvSummary) => ({
+    key: c.id,
+    conv: c,
+    selected: selectedConvId === c.id,
+    onSelect: () => onSelectConv(c.id),
+    onRename: (title: string) => patch(c.id, { title }),
+    onPin: () => patch(c.id, { pinned: !c.pinned }),
+  });
 
   return (
     <aside className={`sidebar ${isOpen ? "sidebar-open" : "sidebar-closed"}`}>
@@ -144,18 +195,18 @@ export function Sidebar({
         {user && convs.length === 0 && (
           <p className="sidebar-hint">No conversations yet.</p>
         )}
-        {groups.map(({ label, items }) => (
+
+        {pinned.length > 0 && (
+          <div className="sidebar-group">
+            <div className="sidebar-group-label">Pinned</div>
+            {pinned.map((c) => <ConvItem {...itemProps(c)} />)}
+          </div>
+        )}
+
+        {dateGroups.map(({ label, items }) => (
           <div key={label} className="sidebar-group">
             <div className="sidebar-group-label">{label}</div>
-            {items.map((c) => (
-              <ConvItem
-                key={c.id}
-                conv={c}
-                selected={selectedConvId === c.id}
-                onSelect={() => onSelectConv(c.id)}
-                onRename={(title) => rename(c.id, title)}
-              />
-            ))}
+            {items.map((c) => <ConvItem {...itemProps(c)} />)}
           </div>
         ))}
       </nav>

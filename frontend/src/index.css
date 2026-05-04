@@ -178,13 +178,24 @@ input, textarea { font: inherit; color: inherit; }
   color: var(--fg-muted);
 }
 
-.sidebar-conv-item {
-  display: block;
+.sidebar-conv-row {
+  position: relative;
+  display: flex;
+  align-items: center;
   width: 100%;
-  padding: 7px 14px;
-  background: transparent;
-  border: none;
-  text-align: left;
+}
+.sidebar-conv-row:hover,
+.sidebar-conv-row.active {
+  background: var(--bg-elev);
+}
+.sidebar-conv-row.active {
+  background: var(--accent-soft);
+}
+
+.sidebar-conv-label {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 6px 7px 14px;
   font-size: 12px;
   color: var(--fg-dim);
   white-space: nowrap;
@@ -193,19 +204,66 @@ input, textarea { font: inherit; color: inherit; }
   line-height: 1.4;
   cursor: pointer;
 }
-.sidebar-conv-item:hover {
+.sidebar-conv-row:hover .sidebar-conv-label { color: var(--fg); }
+.sidebar-conv-row.active .sidebar-conv-label { color: var(--accent); }
+
+.sidebar-conv-menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.sidebar-conv-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 6px;
+  background: none;
+  border: none;
+  color: var(--fg-muted);
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  letter-spacing: -1px;
+  opacity: 0;
+  cursor: pointer;
+  line-height: 1;
+}
+.sidebar-conv-row:hover .sidebar-conv-dots,
+.sidebar-conv-row.menu-open .sidebar-conv-dots { opacity: 1; }
+.sidebar-conv-dots:hover { color: var(--fg); }
+
+.sidebar-conv-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 2px);
+  z-index: 200;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  min-width: 110px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+}
+.sidebar-conv-menu button {
+  display: block;
+  width: 100%;
+  padding: 7px 12px;
+  background: none;
+  border: none;
+  text-align: left;
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-dim);
+  cursor: pointer;
+}
+.sidebar-conv-menu button:hover {
   background: var(--bg-elev);
   color: var(--fg);
 }
-.sidebar-conv-item.active {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
 
-.sidebar-conv-item.is-editing {
+.sidebar-conv-row.is-editing {
   padding: 4px 8px;
-  cursor: default;
-  overflow: visible;
 }
 .sidebar-rename-input {
   width: 100%;
