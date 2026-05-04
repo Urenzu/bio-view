@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { User } from "../api/types";
 
 type ConvSummary = {
@@ -33,6 +33,66 @@ function groupByDate(convs: ConvSummary[]): { label: string; items: ConvSummary[
     .map(([label, items]) => ({ label, items }));
 }
 
+function ConvItem({
+  conv,
+  selected,
+  onSelect,
+  onRename,
+}: {
+  conv: ConvSummary;
+  selected: boolean;
+  onSelect: () => void;
+  onRename: (title: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(conv.title);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const startEdit = () => {
+    setDraft(conv.title);
+    setEditing(true);
+    setTimeout(() => inputRef.current?.select(), 0);
+  };
+
+  const commit = () => {
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== conv.title) onRename(trimmed);
+    setEditing(false);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") { e.preventDefault(); commit(); }
+    if (e.key === "Escape") { setEditing(false); }
+  };
+
+  if (editing) {
+    return (
+      <div className={`sidebar-conv-item ${selected ? "active" : ""} is-editing`}>
+        <input
+          ref={inputRef}
+          className="sidebar-rename-input"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={onKeyDown}
+          autoFocus
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`sidebar-conv-item ${selected ? "active" : ""}`}
+      onClick={onSelect}
+      onDoubleClick={startEdit}
+      title="Double-click to rename"
+    >
+      {conv.title}
+    </div>
+  );
+}
+
 export function Sidebar({
   user,
   selectedConvId,
@@ -57,6 +117,16 @@ export function Sidebar({
       .catch(() => setConvs([]));
   }, [refreshKey, user]);
 
+  const rename = (id: number, title: string) => {
+    fetch(`/conversations/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    }).then((r) => {
+      if (r.ok) setConvs((cs) => cs.map((c) => c.id === id ? { ...c, title } : c));
+    });
+  };
+
   const groups = groupByDate(convs);
 
   return (
@@ -78,14 +148,13 @@ export function Sidebar({
           <div key={label} className="sidebar-group">
             <div className="sidebar-group-label">{label}</div>
             {items.map((c) => (
-              <button
+              <ConvItem
                 key={c.id}
-                className={`sidebar-conv-item ${selectedConvId === c.id ? "active" : ""}`}
-                onClick={() => onSelectConv(c.id)}
-                title={c.title}
-              >
-                {c.title}
-              </button>
+                conv={c}
+                selected={selectedConvId === c.id}
+                onSelect={() => onSelectConv(c.id)}
+                onRename={(title) => rename(c.id, title)}
+              />
             ))}
           </div>
         ))}

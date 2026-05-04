@@ -191,6 +191,7 @@ input, textarea { font: inherit; color: inherit; }
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 1.4;
+  cursor: pointer;
 }
 .sidebar-conv-item:hover {
   background: var(--bg-elev);
@@ -199,6 +200,22 @@ input, textarea { font: inherit; color: inherit; }
 .sidebar-conv-item.active {
   background: var(--accent-soft);
   color: var(--accent);
+}
+
+.sidebar-conv-item.is-editing {
+  padding: 4px 8px;
+  cursor: default;
+  overflow: visible;
+}
+.sidebar-rename-input {
+  width: 100%;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--accent-line);
+  color: var(--fg);
+  font-size: 12px;
+  padding: 3px 7px;
+  outline: none;
+  line-height: 1.4;
 }
 
 .topbar {

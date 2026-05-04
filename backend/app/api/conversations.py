@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Cookie, HTTPException
+from pydantic import BaseModel
 from app.api.auth import decode_user_id
 from app.storage.ledger import Conversation, Message, session_scope
 
@@ -46,3 +47,27 @@ def get_conversation(conv_id: int, session_token: str | None = Cookie(default=No
                 for m in msgs
             ],
         }
+
+
+class RenameBody(BaseModel):
+    title: str
+
+
+@router.patch("/conversations/{conv_id}")
+def rename_conversation(
+    conv_id: int,
+    body: RenameBody,
+    session_token: str | None = Cookie(default=None),
+):
+    uid = decode_user_id(session_token)
+    title = body.title.strip()[:200]
+    if not title:
+        raise HTTPException(422, "title cannot be empty")
+    with session_scope() as s:
+        conv = s.get(Conversation, conv_id)
+        if conv is None:
+            raise HTTPException(404, "not found")
+        if conv.user_id != uid:
+            raise HTTPException(403, "forbidden")
+        conv.title = title
+    return {"id": conv_id, "title": title}
