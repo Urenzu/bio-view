@@ -1,8 +1,11 @@
 from dataclasses import dataclass, asdict
+
+from qdrant_client.models import FieldCondition, Filter, MatchText
+
 from app.config import settings
 from app.embeddings.base import EmbeddingProvider
 from app.reranking.base import Reranker
-from app.storage.chroma import get_or_create_collection
+from app.storage.qdrant import client as qdrant_client, get_or_create_collection
 
 
 @dataclass
@@ -62,30 +65,35 @@ def search(
     query: str,
     embedding: EmbeddingProvider,
     reranker: Reranker,
-    where: dict | None = None,
+    where: Filter | None = None,
     top_k: int | None = None,
     authors_contains: str | None = None,
 ) -> list[Hit]:
     top_k = top_k or settings.retrieval_top_k
-
-    collection = get_or_create_collection(embedding.model_id)
+    col = get_or_create_collection(embedding.model_id)
     qvec = embedding.embed_query(query)
 
-    args: dict = {
-        "query_embeddings": [qvec],
-        "n_results": top_k,
-        "include": ["documents", "metadatas", "distances"],
-    }
-    if where:
-        args["where"] = where
+    qdrant_filter = where
     if authors_contains:
-        args["where_document"] = {"$contains": authors_contains}
+        condition = FieldCondition(key="authors_str", match=MatchText(text=authors_contains))
+        if qdrant_filter is None:
+            qdrant_filter = Filter(must=[condition])
+        else:
+            qdrant_filter = Filter(must=list(qdrant_filter.must or []) + [condition])
 
-    res = collection.query(**args)
-    docs = (res.get("documents") or [[]])[0]
-    metas = (res.get("metadatas") or [[]])[0]
-    if not docs:
+    results = qdrant_client().query_points(
+        collection_name=col,
+        query=qvec,
+        query_filter=qdrant_filter,
+        limit=top_k,
+        with_payload=True,
+    ).points
+
+    if not results:
         return []
+
+    docs = [r.payload["text"] for r in results]
+    metas = [r.payload for r in results]
 
     scores = reranker.rerank(query, docs)
     ranked = sorted(zip(docs, metas, scores), key=lambda x: x[2], reverse=True)

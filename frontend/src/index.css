@@ -224,6 +224,8 @@ input, textarea { font: inherit; color: inherit; }
   margin: 0 0 12px;
   padding-left: 22px;
 }
+.msg-assistant .msg-body ul { list-style-type: disc; }
+.msg-assistant .msg-body ol { list-style-type: decimal; }
 .msg-assistant .msg-body li { margin: 2px 0; }
 .msg-assistant .msg-body li::marker { color: var(--fg-muted); }
 .msg-assistant .msg-body strong { color: var(--fg); font-weight: 600; }
@@ -362,6 +364,7 @@ input, textarea { font: inherit; color: inherit; }
 }
 .source-text::-webkit-scrollbar { width: 4px; }
 .source-text::-webkit-scrollbar-thumb { background: var(--border-strong); }
+.source-text-lead-ellipsis { color: var(--fg-muted); font-style: italic; }
 
 /* ============================================================ */
 /* Composer                                                     */

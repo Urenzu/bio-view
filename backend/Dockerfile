@@ -1,3 +1,13 @@
+# ── Stage 1: build the React frontend ─────────────────────────────────────────
+# Build context is the project root, so frontend/ and backend/ are both accessible
+FROM node:20-alpine AS frontend-build
+WORKDIR /frontend
+COPY frontend/package*.json ./
+RUN npm ci
+COPY frontend .
+RUN npm run build
+
+# ── Stage 2: Python backend ────────────────────────────────────────────────────
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -15,11 +25,14 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 WORKDIR /app
 
-COPY pyproject.toml uv.lock ./
+COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
-COPY app ./app
+COPY backend/app ./app
 RUN uv sync --frozen --no-dev
+
+# Copy built frontend into the location FastAPI serves from
+COPY --from=frontend-build /frontend/dist ./static
 
 ENV PATH="/app/.venv/bin:$PATH"
 

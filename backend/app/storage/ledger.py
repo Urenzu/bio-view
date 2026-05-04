@@ -75,7 +75,13 @@ class Message(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
-engine = create_engine(settings.database_url, future=True)
+_is_sqlite = settings.database_url.startswith("sqlite")
+engine = create_engine(
+    settings.database_url,
+    future=True,
+    pool_pre_ping=not _is_sqlite,
+    connect_args={"check_same_thread": False} if _is_sqlite else {},
+)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 

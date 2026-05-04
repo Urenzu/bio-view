@@ -1,23 +1,24 @@
+from qdrant_client.models import FieldCondition, Filter, MatchAny, Range
+
+
 def build_where(
     sources: list[str] | None = None,
     subjects: list[str] | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     dois: list[str] | None = None,
-) -> dict | None:
-    clauses: list[dict] = []
+) -> Filter | None:
+    conditions: list[FieldCondition] = []
     if sources:
-        clauses.append({"source": {"$in": sources}})
+        conditions.append(FieldCondition(key="source", match=MatchAny(any=sources)))
     if subjects:
-        clauses.append({"subject": {"$in": subjects}})
+        conditions.append(FieldCondition(key="subject", match=MatchAny(any=subjects)))
     if dois:
-        clauses.append({"doi": {"$in": dois}})
+        conditions.append(FieldCondition(key="doi", match=MatchAny(any=dois)))
     if date_from:
-        clauses.append({"posted_date": {"$gte": date_from}})
+        conditions.append(FieldCondition(key="posted_date", range=Range(gte=date_from)))
     if date_to:
-        clauses.append({"posted_date": {"$lte": date_to}})
-    if not clauses:
+        conditions.append(FieldCondition(key="posted_date", range=Range(lte=date_to)))
+    if not conditions:
         return None
-    if len(clauses) == 1:
-        return clauses[0]
-    return {"$and": clauses}
+    return Filter(must=conditions)

@@ -41,15 +41,34 @@ SYSTEM_PROMPT = (
     "'hello'), answer naturally without citations. You don't need to force "
     "paper references when none apply.\n"
     "\n"
-    "Style: direct and concise. Quote short phrases from excerpts when wording "
-    "matters (effect sizes, definitions). Never fabricate citations — only cite "
-    "DOIs that appear in the provided excerpts.\n"
+    "Citations:\n"
+    "- Only cite DOIs that appear in the provided excerpts — never fabricate or "
+    "guess a DOI.\n"
+    "- Excerpts often mention other studies by author name (e.g. 'Smith et al. "
+    "2020 found...'). Those are references inside a retrieved paper, not papers "
+    "you retrieved. Do NOT list them as separate findings and do NOT assign them "
+    "a DOI. Summarise only what the retrieved excerpts themselves report.\n"
+    "\n"
+    "Style: direct and concise. Quote short phrases when wording matters "
+    "(effect sizes, definitions).\n"
 )
 
 def _build_prompt(query: str, hits) -> str:
-    blocks = [
-        f"[DOI:{h.doi}] ({h.section}) {h.title}\n{h.text}" for h in hits
-    ]
+    # Group chunks by DOI so multiple excerpts from the same paper are presented
+    # as one context block, preventing the LLM from treating each chunk as a
+    # separate paper.
+    seen: dict[str, dict] = {}
+    for h in hits:
+        if h.doi not in seen:
+            seen[h.doi] = {"h": h, "texts": []}
+        seen[h.doi]["texts"].append(h.text)
+
+    blocks = []
+    for doi, entry in seen.items():
+        h = entry["h"]
+        combined = "\n\n".join(entry["texts"])
+        blocks.append(f"[DOI:{doi}] {h.title}\n{combined}")
+
     ctx = "\n\n---\n\n".join(blocks) if blocks else "(no relevant context found)"
     return f"Context:\n{ctx}\n\nQuestion: {query}\n\nAnswer with citations:"
 

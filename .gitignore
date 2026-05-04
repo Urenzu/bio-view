@@ -42,3 +42,6 @@ data/
 
 # Logs
 *.log
+
+# Internal planning / scratch notes
+project.md
