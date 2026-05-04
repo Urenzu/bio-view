@@ -1,3 +1,10 @@
+export type User = {
+  id: number;
+  email: string;
+  name: string;
+  picture: string;
+};
+
 export type Hit = {
   doi: string;
   version: number;

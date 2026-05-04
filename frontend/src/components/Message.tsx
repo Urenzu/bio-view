@@ -40,13 +40,13 @@ export function Message({ turn }: { turn: Turn }) {
 type Block =
   | { kind: "p"; text: string }
   | { kind: "ul"; items: string[] }
-  | { kind: "ol"; items: string[] };
+  | { kind: "ol"; items: string[]; start: number };
 
 function parseBlocks(text: string): Block[] {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   const blocks: Block[] = [];
   let para: string[] = [];
-  let list: { kind: "ul" | "ol"; items: string[] } | null = null;
+  let list: { kind: "ul"; items: string[] } | { kind: "ol"; items: string[]; start: number } | null = null;
 
   const flushPara = () => {
     if (para.length) {
@@ -69,7 +69,7 @@ function parseBlocks(text: string): Block[] {
       continue;
     }
     const ul = line.match(/^[-*]\s+(.*)/);
-    const ol = line.match(/^\d+\.\s+(.*)/);
+    const ol = line.match(/^(\d+)\.\s+(.*)/);
     if (ul) {
       flushPara();
       if (!list || list.kind !== "ul") {
@@ -81,9 +81,9 @@ function parseBlocks(text: string): Block[] {
       flushPara();
       if (!list || list.kind !== "ol") {
         flushList();
-        list = { kind: "ol", items: [] };
+        list = { kind: "ol", items: [], start: parseInt(ol[1]) };
       }
-      list.items.push(ol[1]);
+      list.items.push(ol[2]);
     } else {
       flushList();
       para.push(line);
@@ -96,11 +96,24 @@ function parseBlocks(text: string): Block[] {
   for (const b of blocks) {
     const prev = merged[merged.length - 1];
     if (prev && (b.kind === "ul" || b.kind === "ol") && prev.kind === b.kind) {
-      prev.items.push(...b.items);
+      (prev as { items: string[] }).items.push(...b.items);
     } else {
       merged.push(b);
     }
   }
+
+  // Fix ol start indices so items interspersed with paragraphs number sequentially.
+  // e.g. "1. A\n\nparagraph\n\n2. B" produces two <ol> blocks; we set start=1 and start=2.
+  let olCount = 0;
+  for (const b of merged) {
+    if (b.kind === "ol") {
+      b.start = olCount + 1;
+      olCount += b.items.length;
+    } else if (b.kind === "ul") {
+      olCount = 0;
+    }
+  }
+
   return merged;
 }
 
@@ -115,7 +128,7 @@ function renderMarkdown(text: string, knownDois: Set<string>): ReactNode {
         </ul>
       );
     return (
-      <ol key={i}>
+      <ol key={i} start={b.start}>
         {b.items.map((it, j) => <li key={j}>{renderInline(it, knownDois)}</li>)}
       </ol>
     );
@@ -175,7 +188,21 @@ function SourcesPanel({ hits }: { hits: Hit[] }) {
   );
 }
 
+// Trim a raw text chunk to start at the first complete sentence.
+// Vector DB chunks often begin mid-sentence; this finds the first capital-letter
+// sentence start and prepends an ellipsis to signal the cut.
+function trimToSentence(raw: string): { text: string; trimmed: boolean } {
+  const t = raw.trim();
+  if (/^[A-Z"'(\[]/.test(t)) return { text: t, trimmed: false };
+  const m = t.match(/[.!?]\s+([A-Z])/);
+  if (m && m.index !== undefined) {
+    return { text: t.slice(m.index + m[0].length - 1), trimmed: true };
+  }
+  return { text: t, trimmed: true };
+}
+
 function SourceRow({ hit }: { hit: Hit }) {
+  const { text: displayText, trimmed } = trimToSentence(hit.text);
   return (
     <article className="source">
       <div className="source-meta">
@@ -191,7 +218,10 @@ function SourceRow({ hit }: { hit: Hit }) {
         </a>
       </div>
       {hit.authors && <div className="source-authors">{hit.authors}</div>}
-      <div className="source-text">{hit.text}</div>
+      <div className="source-text">
+        {trimmed && <span className="source-text-lead-ellipsis">… </span>}
+        {displayText}
+      </div>
     </article>
   );
 }

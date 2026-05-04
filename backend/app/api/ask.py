@@ -1,8 +1,9 @@
 import json
-from fastapi import APIRouter
+from fastapi import APIRouter, Cookie
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+from app.api.auth import decode_user_id
 from app.api.deps import get_embedding, get_llm, get_reranker
 from app.retrieval.filters import build_where
 from app.retrieval.search import search
@@ -41,21 +42,52 @@ SYSTEM_PROMPT = (
     "'hello'), answer naturally without citations. You don't need to force "
     "paper references when none apply.\n"
     "\n"
-    "Style: direct and concise. Quote short phrases from excerpts when wording "
-    "matters (effect sizes, definitions). Never fabricate citations — only cite "
-    "DOIs that appear in the provided excerpts.\n"
+    "Citations:\n"
+    "- Only cite DOIs that appear in the provided excerpts — never fabricate or "
+    "guess a DOI.\n"
+    "- Excerpts often mention other studies by author name (e.g. 'Smith et al. "
+    "2020 found...'). Those are references inside a retrieved paper, not papers "
+    "you retrieved. Do NOT list them as separate findings and do NOT assign them "
+    "a DOI. Summarise only what the retrieved excerpts themselves report.\n"
+    "\n"
+    "Style: direct and concise. Quote short phrases when wording matters "
+    "(effect sizes, definitions).\n"
 )
 
+# ~12k chars leaves ample room for the system prompt + a full LLM response within
+# most 8k-token context windows (1 token ≈ 4 chars).
+_CONTEXT_BUDGET_CHARS = 12_000
+_PER_PAPER_CHARS = 3_000
+
+
 def _build_prompt(query: str, hits) -> str:
-    blocks = [
-        f"[DOI:{h.doi}] ({h.section}) {h.title}\n{h.text}" for h in hits
-    ]
+    # Group chunks by DOI so multiple excerpts from the same paper are presented
+    # as one context block, preventing the LLM from treating each chunk as a
+    # separate paper. Hits arrive sorted best-first; insertion order preserves that.
+    seen: dict[str, dict] = {}
+    for h in hits:
+        if h.doi not in seen:
+            seen[h.doi] = {"h": h, "texts": []}
+        seen[h.doi]["texts"].append(h.text)
+
+    blocks = []
+    total = 0
+    for doi, entry in seen.items():
+        if total >= _CONTEXT_BUDGET_CHARS:
+            break
+        h = entry["h"]
+        combined = "\n\n".join(entry["texts"])[:_PER_PAPER_CHARS]
+        block = f"[DOI:{doi}] {h.title}\n{combined}"
+        blocks.append(block)
+        total += len(block)
+
     ctx = "\n\n---\n\n".join(blocks) if blocks else "(no relevant context found)"
     return f"Context:\n{ctx}\n\nQuestion: {query}\n\nAnswer with citations:"
 
 
 @router.post("/ask")
-async def ask(req: AskRequest):
+async def ask(req: AskRequest, session_token: str | None = Cookie(default=None)):
+    user_id = decode_user_id(session_token)
     embedding = get_embedding()
     reranker = get_reranker()
     llm = get_llm()
@@ -72,7 +104,7 @@ async def ask(req: AskRequest):
 
     with session_scope() as s:
         if req.conversation_id is None:
-            conv = Conversation(title=req.query[:80])
+            conv = Conversation(title=req.query[:80], user_id=user_id)
             s.add(conv)
             s.flush()
             conv_id = conv.id
@@ -116,6 +148,7 @@ async def ask(req: AskRequest):
                     embedding_model_id=embedding.model_id,
                     reranker_model_id=reranker.model_id,
                     retrieved_doi_versions=retrieved,
+                    hits_json=[h.to_dict() for h in hits],
                 )
             )
 

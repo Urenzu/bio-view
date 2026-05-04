@@ -1,8 +1,8 @@
-"""Re-embed already-ingested papers into a new Chroma collection.
+"""Re-embed already-ingested papers into a new Qdrant collection.
 
 Iterates Paper rows whose `embedded_in[]` is missing the target model_id,
 re-parses the cached JATS XML (no S3, no MECA), chunks, embeds, and upserts
-into a new per-model Chroma collection. The original collection stays intact
+into a new per-model Qdrant collection. The original collection stays intact
 for live serving while the new one is built.
 """
 import argparse
@@ -13,7 +13,9 @@ from app.config import settings
 from app.embeddings.base import EmbeddingProvider
 from app.embeddings.huggingface import make_embedding_provider
 from app.ingest import chunker, meca
-from app.storage.chroma import get_or_create_collection
+from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
+
+from app.storage.qdrant import chunk_uuid, client as qdrant_client, get_or_create_collection
 from app.storage.ledger import Paper, init_db, session_scope
 
 log = logging.getLogger(__name__)
@@ -58,7 +60,7 @@ def reembed(embedding: EmbeddingProvider, limit: int | None = None) -> None:
         targets = targets[:limit]
     log.info("re-embedding %d papers into collection for %s", len(targets), embedding.model_id)
 
-    collection = get_or_create_collection(embedding.model_id)
+    col = get_or_create_collection(embedding.model_id)
     done = 0
     failed = 0
 
@@ -78,13 +80,25 @@ def reembed(embedding: EmbeddingProvider, limit: int | None = None) -> None:
 
             texts = [c.text for c in chunks]
             vectors = embedding.embed(texts)
-            ids, metadatas = _build_metadatas(parsed, chunks, source)
+            ids_str, metadatas = _build_metadatas(parsed, chunks, source)
 
             try:
-                collection.delete(where={"doi": doi})
+                qdrant_client().delete(
+                    collection_name=col,
+                    points_selector=Filter(must=[FieldCondition(key="doi", match=MatchValue(value=doi))]),
+                )
             except Exception:
                 pass
-            collection.upsert(ids=ids, embeddings=vectors, documents=texts, metadatas=metadatas)
+
+            points = [
+                PointStruct(
+                    id=chunk_uuid(id_str),
+                    vector=vec,
+                    payload={**meta, "text": text},
+                )
+                for id_str, vec, text, meta in zip(ids_str, vectors, texts, metadatas)
+            ]
+            qdrant_client().upsert(collection_name=col, points=points)
 
             with session_scope() as session:
                 fresh = session.get(Paper, paper_id)

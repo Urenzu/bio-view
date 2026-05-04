@@ -1,13 +1,23 @@
 from contextlib import contextmanager
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, DateTime, JSON, Text, UniqueConstraint, create_engine,
+    Boolean, Column, Integer, String, DateTime, JSON, Text, UniqueConstraint, create_engine,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
 from app.config import settings
 
 Base = declarative_base()
+
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True)
+    email = Column(String, nullable=False, unique=True, index=True)
+    name = Column(String, default="")
+    picture = Column(String, default="")
+    google_sub = Column(String, unique=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class Paper(Base):
@@ -58,8 +68,11 @@ class IngestRun(Base):
 class Conversation(Base):
     __tablename__ = "conversations"
     id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, index=True)  # null = anonymous
     created_at = Column(DateTime, default=datetime.utcnow)
     title = Column(String)
+    pinned = Column(Boolean, default=False)
+    pinned_at = Column(DateTime, nullable=True)
 
 
 class Message(Base):
@@ -72,10 +85,17 @@ class Message(Base):
     embedding_model_id = Column(String)
     reranker_model_id = Column(String)
     retrieved_doi_versions = Column(JSON)
+    hits_json = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
-engine = create_engine(settings.database_url, future=True)
+_is_sqlite = settings.database_url.startswith("sqlite")
+engine = create_engine(
+    settings.database_url,
+    future=True,
+    pool_pre_ping=not _is_sqlite,
+    connect_args={"check_same_thread": False} if _is_sqlite else {},
+)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 

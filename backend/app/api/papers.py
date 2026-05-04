@@ -34,6 +34,13 @@ def list_papers(
         return [_serialize(p) for p in rows]
 
 
+@router.get("/subjects")
+def list_subjects() -> list[str]:
+    with session_scope() as s:
+        rows = s.query(Paper.subject).filter(Paper.subject.isnot(None)).distinct().all()
+        return sorted({r.subject for r in rows if r.subject})
+
+
 @router.get("/papers/{doi:path}")
 def get_paper(doi: str) -> list[dict]:
     with session_scope() as s:

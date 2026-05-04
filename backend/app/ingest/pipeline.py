@@ -10,7 +10,9 @@ from typing import Iterator
 from app.config import settings
 from app.embeddings.base import EmbeddingProvider
 from app.ingest import chunker, meca, s3
-from app.storage.chroma import get_or_create_collection
+from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
+
+from app.storage.qdrant import chunk_uuid, client as qdrant_client, get_or_create_collection
 from app.storage.ledger import IngestRun, MecaState, Paper, session_scope
 
 log = logging.getLogger(__name__)
@@ -54,6 +56,7 @@ def _should_skip_state(state: MecaState | None, embedding_model_id: str) -> bool
         return True
     if state.status == "failed" and state.attempt_count >= settings.max_retry_attempts:
         return True
+    # "ingesting" means a prior run crashed mid-flight — retry it
     return False
 
 
@@ -129,30 +132,39 @@ def _ingest_one(source: str, bucket: str, key: str, embedding: EmbeddingProvider
         texts = [c.text for c in chunks]
         vectors = embedding.embed(texts)
 
-        collection = get_or_create_collection(embedding.model_id)
+        col = get_or_create_collection(embedding.model_id)
         try:
-            collection.delete(where={"doi": parsed.doi})
+            qdrant_client().delete(
+                collection_name=col,
+                points_selector=Filter(must=[FieldCondition(key="doi", match=MatchValue(value=parsed.doi))]),
+            )
         except Exception:
             log.debug("no prior chunks to delete for %s", parsed.doi)
 
-        ids = [f"{parsed.doi}::v{parsed.version}::{c.chunk_index}" for c in chunks]
+        ids_str = [f"{parsed.doi}::v{parsed.version}::{c.chunk_index}" for c in chunks]
         authors_str = ", ".join(
             f"{a.get('given', '')} {a.get('surname', '')}".strip() for a in parsed.authors
         )[:1000]
-        metadatas = [
-            {
-                "doi": parsed.doi,
-                "version": parsed.version,
-                "source": source,
-                "subject": parsed.subject or "",
-                "title": parsed.title,
-                "section": c.section,
-                "posted_date": parsed.posted_date or "",
-                "authors_str": authors_str,
-            }
-            for c in chunks
+
+        points = [
+            PointStruct(
+                id=chunk_uuid(id_str),
+                vector=vec,
+                payload={
+                    "doi": parsed.doi,
+                    "version": parsed.version,
+                    "source": source,
+                    "subject": parsed.subject or "",
+                    "title": parsed.title,
+                    "section": chunk.section,
+                    "posted_date": parsed.posted_date or "",
+                    "authors_str": authors_str,
+                    "text": text,
+                },
+            )
+            for id_str, vec, text, chunk in zip(ids_str, vectors, texts, chunks)
         ]
-        collection.upsert(ids=ids, embeddings=vectors, documents=texts, metadatas=metadatas)
+        qdrant_client().upsert(collection_name=col, points=points)
 
         with session_scope() as session:
             existing = (
@@ -288,6 +300,17 @@ def run_ingest(
             continue
         if _should_skip_state(state, embedding.model_id):
             continue
+
+        with session_scope() as session:
+            state = session.query(MecaState).filter_by(meca_key=key).first()
+            if state is None:
+                session.add(MecaState(
+                    meca_key=key, source=source, status="ingesting",
+                    attempt_count=1, last_attempt_at=datetime.utcnow(),
+                ))
+            else:
+                state.status = "ingesting"
+                state.last_attempt_at = datetime.utcnow()
 
         try:
             bytes_dl, paper_id = _ingest_one(source, bucket, key, embedding)
