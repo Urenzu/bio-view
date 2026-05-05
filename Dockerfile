@@ -1,13 +1,9 @@
-# syntax=docker/dockerfile:1.6
-
 # ── Stage 1: build the React frontend ─────────────────────────────────────────
 FROM node:20-alpine AS frontend-build
 WORKDIR /frontend
 
-# Cache npm install across rebuilds when package*.json hasn't changed
 COPY frontend/package*.json ./
-RUN --mount=type=cache,target=/root/.npm \
-    npm ci --prefer-offline --no-audit --no-fund
+RUN npm ci --prefer-offline --no-audit --no-fund
 
 COPY frontend ./
 RUN npm run build
@@ -35,12 +31,10 @@ WORKDIR /app
 
 # Install deps first (cached layer), then project code.
 COPY backend/pyproject.toml backend/uv.lock ./
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-install-project
+RUN uv sync --frozen --no-dev --no-install-project
 
 COPY backend/app ./app
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev
 
 
 # ── Stage 3: minimal runtime image ────────────────────────────────────────────
