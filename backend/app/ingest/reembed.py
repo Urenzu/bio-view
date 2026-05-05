@@ -1,45 +1,21 @@
-"""Re-embed already-ingested papers into a new Qdrant collection.
+"""Re-embed already-ingested papers into a new pgvector table.
 
 Iterates Paper rows whose `embedded_in[]` is missing the target model_id,
 re-parses the cached JATS XML (no S3, no MECA), chunks, embeds, and upserts
-into a new per-model Qdrant collection. The original collection stays intact
-for live serving while the new one is built.
+into a new per-model pgvector table. The original table stays intact for
+live serving while the new one is built.
 """
 import argparse
 import logging
 from pathlib import Path
 
-from app.config import settings
 from app.embeddings.base import EmbeddingProvider
-from app.embeddings.huggingface import make_embedding_provider
+from app.embeddings.openai import make_embedding_provider
 from app.ingest import chunker, meca
-from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
-
-from app.storage.qdrant import chunk_uuid, client as qdrant_client, get_or_create_collection
+from app.storage import pgvector as pg
 from app.storage.ledger import Paper, init_db, session_scope
 
 log = logging.getLogger(__name__)
-
-
-def _build_metadatas(parsed: meca.ParsedPaper, chunks, source: str) -> tuple[list[str], list[dict]]:
-    authors_str = ", ".join(
-        f"{a.get('given', '')} {a.get('surname', '')}".strip() for a in parsed.authors
-    )[:1000]
-    ids = [f"{parsed.doi}::v{parsed.version}::{c.chunk_index}" for c in chunks]
-    metadatas = [
-        {
-            "doi": parsed.doi,
-            "version": parsed.version,
-            "source": source,
-            "subject": parsed.subject or "",
-            "title": parsed.title,
-            "section": c.section,
-            "posted_date": parsed.posted_date or "",
-            "authors_str": authors_str,
-        }
-        for c in chunks
-    ]
-    return ids, metadatas
 
 
 def reembed(embedding: EmbeddingProvider, limit: int | None = None) -> None:
@@ -58,9 +34,9 @@ def reembed(embedding: EmbeddingProvider, limit: int | None = None) -> None:
 
     if limit is not None:
         targets = targets[:limit]
-    log.info("re-embedding %d papers into collection for %s", len(targets), embedding.model_id)
+    log.info("re-embedding %d papers into table for %s", len(targets), embedding.model_id)
 
-    col = get_or_create_collection(embedding.model_id)
+    tbl = pg.get_or_create_table(embedding.model_id, dim=embedding.dim)
     done = 0
     failed = 0
 
@@ -75,30 +51,33 @@ def reembed(embedding: EmbeddingProvider, limit: int | None = None) -> None:
             parsed = meca.parse_jats(path)
             chunks = chunker.chunk_paper(parsed)
             if not chunks:
-                log.info("no chunks for %s, skipping", doi)
                 continue
 
             texts = [c.text for c in chunks]
             vectors = embedding.embed(texts)
-            ids_str, metadatas = _build_metadatas(parsed, chunks, source)
 
-            try:
-                qdrant_client().delete(
-                    collection_name=col,
-                    points_selector=Filter(must=[FieldCondition(key="doi", match=MatchValue(value=doi))]),
-                )
-            except Exception:
-                pass
+            authors_str = ", ".join(
+                f"{a.get('given', '')} {a.get('surname', '')}".strip()
+                for a in parsed.authors
+            )[:1000]
 
-            points = [
-                PointStruct(
-                    id=chunk_uuid(id_str),
-                    vector=vec,
-                    payload={**meta, "text": text},
-                )
-                for id_str, vec, text, meta in zip(ids_str, vectors, texts, metadatas)
-            ]
-            qdrant_client().upsert(collection_name=col, points=points)
+            pg.delete_by_doi(tbl, doi)
+            pg.upsert_chunks(tbl, [
+                {
+                    "id": f"{doi}::v{parsed.version}::{c.chunk_index}",
+                    "doi": doi,
+                    "version": parsed.version,
+                    "source": source,
+                    "subject": parsed.subject or "",
+                    "title": parsed.title,
+                    "section": c.section,
+                    "posted_date": parsed.posted_date or "",
+                    "authors_str": authors_str,
+                    "text": t,
+                    "embedding": v,
+                }
+                for c, t, v in zip(chunks, texts, vectors)
+            ])
 
             with session_scope() as session:
                 fresh = session.get(Paper, paper_id)
@@ -119,12 +98,8 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    p = argparse.ArgumentParser(description="Re-embed cached papers into a new collection")
-    p.add_argument(
-        "--embedding-model",
-        required=True,
-        help="HF model id, e.g. NeuML/pubmedbert-base-embeddings",
-    )
+    p = argparse.ArgumentParser(description="Re-embed cached papers into a new table")
+    p.add_argument("--embedding-model", required=True)
     p.add_argument("--limit", type=int, default=None)
     args = p.parse_args()
 

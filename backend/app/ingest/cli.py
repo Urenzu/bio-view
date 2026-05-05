@@ -2,7 +2,7 @@ import argparse
 import logging
 
 from app.config import settings
-from app.embeddings.huggingface import make_embedding_provider
+from app.embeddings.openai import make_embedding_provider
 from app.ingest.pipeline import run_ingest
 from app.storage.ledger import init_db
 

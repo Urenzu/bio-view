@@ -10,9 +10,7 @@ from typing import Iterator
 from app.config import settings
 from app.embeddings.base import EmbeddingProvider
 from app.ingest import chunker, meca, s3
-from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
-
-from app.storage.qdrant import chunk_uuid, client as qdrant_client, get_or_create_collection
+from app.storage import pgvector as pg
 from app.storage.ledger import IngestRun, MecaState, Paper, session_scope
 
 log = logging.getLogger(__name__)
@@ -132,39 +130,30 @@ def _ingest_one(source: str, bucket: str, key: str, embedding: EmbeddingProvider
         texts = [c.text for c in chunks]
         vectors = embedding.embed(texts)
 
-        col = get_or_create_collection(embedding.model_id)
-        try:
-            qdrant_client().delete(
-                collection_name=col,
-                points_selector=Filter(must=[FieldCondition(key="doi", match=MatchValue(value=parsed.doi))]),
-            )
-        except Exception:
-            log.debug("no prior chunks to delete for %s", parsed.doi)
+        tbl = pg.get_or_create_table(embedding.model_id, dim=embedding.dim)
+        pg.delete_by_doi(tbl, parsed.doi)
 
-        ids_str = [f"{parsed.doi}::v{parsed.version}::{c.chunk_index}" for c in chunks]
         authors_str = ", ".join(
             f"{a.get('given', '')} {a.get('surname', '')}".strip() for a in parsed.authors
         )[:1000]
 
-        points = [
-            PointStruct(
-                id=chunk_uuid(id_str),
-                vector=vec,
-                payload={
-                    "doi": parsed.doi,
-                    "version": parsed.version,
-                    "source": source,
-                    "subject": parsed.subject or "",
-                    "title": parsed.title,
-                    "section": chunk.section,
-                    "posted_date": parsed.posted_date or "",
-                    "authors_str": authors_str,
-                    "text": text,
-                },
-            )
-            for id_str, vec, text, chunk in zip(ids_str, vectors, texts, chunks)
+        rows = [
+            {
+                "id": f"{parsed.doi}::v{parsed.version}::{chunk.chunk_index}",
+                "doi": parsed.doi,
+                "version": parsed.version,
+                "source": source,
+                "subject": parsed.subject or "",
+                "title": parsed.title,
+                "section": chunk.section,
+                "posted_date": parsed.posted_date or "",
+                "authors_str": authors_str,
+                "text": text,
+                "embedding": vec,
+            }
+            for vec, text, chunk in zip(vectors, texts, chunks)
         ]
-        qdrant_client().upsert(collection_name=col, points=points)
+        pg.upsert_chunks(tbl, rows)
 
         with session_scope() as session:
             existing = (

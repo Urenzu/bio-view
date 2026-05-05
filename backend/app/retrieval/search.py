@@ -1,14 +1,12 @@
 import logging
 from dataclasses import dataclass, asdict
-
-from qdrant_client.models import FieldCondition, Filter, MatchText
-
-log = logging.getLogger(__name__)
+from typing import Any
 
 from app.config import settings
 from app.embeddings.base import EmbeddingProvider
-from app.reranking.base import Reranker
-from app.storage.qdrant import client as qdrant_client, get_or_create_collection
+from app.storage import pgvector as pg
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -29,100 +27,81 @@ class Hit:
 
 
 def _adaptive_cut(
-    ranked: list[tuple],
+    rows: list[dict],
     min_k: int,
     max_k: int,
     score_floor: float,
-) -> list[tuple]:
+) -> list[dict]:
     """Trim a score-desc-sorted list using top-relative floor + largest-gap.
 
     1. Cap at max_k.
     2. Drop anything more than `score_floor` below the top score.
     3. Among remaining (beyond min_k), cut at the largest consecutive gap.
     """
-    if not ranked:
+    if not rows:
         return []
-    ranked = ranked[:max_k]
-    top = ranked[0][-1]
+    rows = rows[:max_k]
+    top = rows[0]["score"]
 
-    cap = len(ranked)
-    for i, item in enumerate(ranked):
-        if item[-1] < top - score_floor:
+    cap = len(rows)
+    for i, r in enumerate(rows):
+        if r["score"] < top - score_floor:
             cap = i
             break
-    ranked = ranked[:cap]
-    if len(ranked) <= min_k:
-        return ranked
+    rows = rows[:cap]
+    if len(rows) <= min_k:
+        return rows
 
     best_gap = -1.0
-    cut = len(ranked)
-    for i in range(min_k - 1, len(ranked) - 1):
-        gap = ranked[i][-1] - ranked[i + 1][-1]
+    cut = len(rows)
+    for i in range(min_k - 1, len(rows) - 1):
+        gap = rows[i]["score"] - rows[i + 1]["score"]
         if gap > best_gap:
             best_gap = gap
             cut = i + 1
-    return ranked[:cut]
+    return rows[:cut]
 
 
 def search(
     query: str,
     embedding: EmbeddingProvider,
-    reranker: Reranker,
-    where: Filter | None = None,
+    where: tuple[str, dict[str, Any]] | None = None,
     top_k: int | None = None,
     authors_contains: str | None = None,
 ) -> list[Hit]:
     top_k = top_k or settings.retrieval_top_k
-    col = get_or_create_collection(embedding.model_id)
+    tbl = pg.get_or_create_table(embedding.model_id, dim=embedding.dim)
     qvec = embedding.embed_query(query)
 
-    qdrant_filter = where
+    where_sql, params = where or ("", {})
     if authors_contains:
-        condition = FieldCondition(key="authors_str", match=MatchText(text=authors_contains))
-        if qdrant_filter is None:
-            qdrant_filter = Filter(must=[condition])
-        else:
-            qdrant_filter = Filter(must=list(qdrant_filter.must or []) + [condition])
+        extra = "authors_str ILIKE :authors_contains"
+        params = {**params, "authors_contains": f"%{authors_contains}%"}
+        where_sql = f"({where_sql}) AND {extra}" if where_sql else extra
 
-    results = qdrant_client().query_points(
-        collection_name=col,
-        query=qvec,
-        query_filter=qdrant_filter,
-        limit=top_k,
-        with_payload=True,
-    ).points
-
-    if not results:
+    rows = pg.search(tbl, qvec, where_sql, params, top_k)
+    if not rows:
         return []
 
-    docs = [r.payload["text"] for r in results]
-    metas = [r.payload for r in results]
-
-    try:
-        scores = reranker.rerank(query, docs)
-    except Exception:
-        log.warning("reranker failed, falling back to vector similarity scores", exc_info=True)
-        scores = [float(r.score) for r in results]
-    ranked = sorted(zip(docs, metas, scores), key=lambda x: x[2], reverse=True)
-    ranked = _adaptive_cut(
-        ranked,
-        min_k=settings.rerank_min_k,
-        max_k=settings.rerank_max_k,
-        score_floor=settings.rerank_score_floor,
+    rows = _adaptive_cut(
+        rows,
+        min_k=settings.result_min_k,
+        max_k=settings.result_max_k,
+        score_floor=settings.score_floor,
     )
 
     return [
         Hit(
-            doi=str(m.get("doi", "")),
-            version=int(m.get("version", 1)),
-            section=str(m.get("section", "")),
-            title=str(m.get("title", "")),
-            source=str(m.get("source", "")),
-            subject=str(m.get("subject", "")),
-            posted_date=str(m.get("posted_date", "")),
-            authors=str(m.get("authors_str", "")),
-            text=d,
-            score=float(s),
+            doi=str(r.get("doi", "")),
+            version=int(r.get("version", 1)),
+            section=str(r.get("section", "")),
+            title=str(r.get("title", "")),
+            source=str(r.get("source", "")),
+            subject=str(r.get("subject", "") or ""),
+            posted_date=str(r.get("posted_date", "") or ""),
+            authors=str(r.get("authors_str", "") or ""),
+            text=str(r.get("text", "")),
+            score=float(r["score"]),
         )
-        for d, m, s in ranked
+        for r in rows
     ]

@@ -3,7 +3,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.config import settings
-from app.embeddings.huggingface import make_embedding_provider
+from app.embeddings.openai import make_embedding_provider
 from app.ingest.pipeline import run_ingest
 
 log = logging.getLogger(__name__)

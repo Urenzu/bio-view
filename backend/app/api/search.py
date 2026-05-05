@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from app.api.deps import get_embedding, get_reranker
+from app.api.deps import get_embedding
 from app.retrieval.filters import build_where
 from app.retrieval.search import Hit, search
 
@@ -31,7 +31,6 @@ def post_search(req: SearchRequest) -> list[dict]:
     hits: list[Hit] = search(
         req.query,
         get_embedding(),
-        get_reranker(),
         where=where,
         top_k=req.top_k,
         authors_contains=req.authors_contains,

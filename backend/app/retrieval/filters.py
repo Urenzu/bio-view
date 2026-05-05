@@ -1,4 +1,4 @@
-from qdrant_client.models import FieldCondition, Filter, MatchAny, Range
+from typing import Any
 
 
 def build_where(
@@ -7,18 +7,29 @@ def build_where(
     date_from: str | None = None,
     date_to: str | None = None,
     dois: list[str] | None = None,
-) -> Filter | None:
-    conditions: list[FieldCondition] = []
+    authors_contains: str | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Build a SQL WHERE fragment + params dict for chunk-table queries."""
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+
     if sources:
-        conditions.append(FieldCondition(key="source", match=MatchAny(any=sources)))
+        clauses.append("source = ANY(:sources)")
+        params["sources"] = list(sources)
     if subjects:
-        conditions.append(FieldCondition(key="subject", match=MatchAny(any=subjects)))
+        clauses.append("subject = ANY(:subjects)")
+        params["subjects"] = list(subjects)
     if dois:
-        conditions.append(FieldCondition(key="doi", match=MatchAny(any=dois)))
+        clauses.append("doi = ANY(:dois)")
+        params["dois"] = list(dois)
     if date_from:
-        conditions.append(FieldCondition(key="posted_date", range=Range(gte=date_from)))
+        clauses.append("posted_date >= :date_from")
+        params["date_from"] = date_from
     if date_to:
-        conditions.append(FieldCondition(key="posted_date", range=Range(lte=date_to)))
-    if not conditions:
-        return None
-    return Filter(must=conditions)
+        clauses.append("posted_date <= :date_to")
+        params["date_to"] = date_to
+    if authors_contains:
+        clauses.append("authors_str ILIKE :authors_contains")
+        params["authors_contains"] = f"%{authors_contains}%"
+
+    return (" AND ".join(clauses), params)

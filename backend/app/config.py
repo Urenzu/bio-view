@@ -12,9 +12,10 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # AWS
-    aws_access_key: str = Field(alias="AWS_ACCESS_KEY")
-    aws_secret_access_key: str = Field(alias="AWS_SECRET_ACCESS_KEY")
+    # AWS — only required for ingest (S3 reads of bioRxiv/medRxiv buckets).
+    # Empty defaults let the API container boot on hosts that never run ingest.
+    aws_access_key: str = Field(default="", alias="AWS_ACCESS_KEY")
+    aws_secret_access_key: str = Field(default="", alias="AWS_SECRET_ACCESS_KEY")
     aws_region: str = "us-east-1"
 
     # Sources
@@ -27,21 +28,20 @@ class Settings(BaseSettings):
     max_retry_attempts: int = 3
 
     # Models
-    embedding_model_id: str = "NeuML/pubmedbert-base-embeddings"
-    embedding_dim: int = 768
-    reranker_model_id: str = "ncbi/MedCPT-Cross-Encoder"
+    embedding_model_id: str = "text-embedding-3-small"
+    embedding_dim: int = 1536
     gen_model_id: str = "qwen/qwen3-30b-a3b-instruct-2507"
 
-    # OpenRouter
+    # API keys
     openrouter_api_key: str = Field(default="", alias="OPENROUTER_API_KEY")
+    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
 
-    # Database — set DATABASE_URL env var for Postgres, falls back to local SQLite
-    database_url_override: str = Field(default="", alias="DATABASE_URL")
-    sqlite_path: Path = PROJECT_ROOT / "data" / "bio_view.db"
-
-    # Qdrant — set QDRANT_URL / QDRANT_API_KEY for remote, defaults to local
-    qdrant_url: str = Field(default="http://localhost:6333", alias="QDRANT_URL")
-    qdrant_api_key: str = Field(default="", alias="QDRANT_API_KEY")
+    # Database — Postgres with pgvector. DATABASE_URL must point at a Postgres
+    # instance with the vector extension available.
+    database_url_override: str = Field(
+        default="postgresql://bioview:bioview@localhost:5432/bioview",
+        alias="DATABASE_URL",
+    )
 
     # Auth — SECRET_KEY signs JWT sessions; Google OAuth for login
     secret_key: str = Field(default="dev-secret-change-in-production", alias="SECRET_KEY")
@@ -52,9 +52,14 @@ class Settings(BaseSettings):
         alias="GOOGLE_REDIRECT_URI",
     )
 
-    # Local file storage
-    jats_cache_path: Path = PROJECT_ROOT / "data" / "jats"
-    meca_temp_path: Path = PROJECT_ROOT / "data" / "meca_tmp"
+    # Local file storage. On Railway / read-only filesystems point these at
+    # an ephemeral location like /tmp via env vars.
+    jats_cache_path: Path = Field(
+        default=PROJECT_ROOT / "data" / "jats", alias="JATS_CACHE_PATH"
+    )
+    meca_temp_path: Path = Field(
+        default=PROJECT_ROOT / "data" / "meca_tmp", alias="MECA_TEMP_PATH"
+    )
 
     # Scheduling
     poll_cron: str = "0 6 1 * *"  # 06:00 UTC, 1st of each month
@@ -63,22 +68,18 @@ class Settings(BaseSettings):
     chunk_max_chars: int = 2000
     chunk_overlap_chars: int = 200
     retrieval_top_k: int = 50
-    rerank_min_k: int = 2
-    rerank_max_k: int = 15
-    rerank_score_floor: float = 4.0
+    result_min_k: int = 2
+    result_max_k: int = 15
+    # Cosine similarity floor relative to top hit (drop hits whose score is more
+    # than this much below the top score). Range ~[0.0, 1.0]; tune empirically.
+    score_floor: float = 0.15
 
     @property
     def database_url(self) -> str:
-        if self.database_url_override:
-            return self.database_url_override
-        return f"sqlite:///{self.sqlite_path}"
+        return self.database_url_override
 
 
 settings = Settings()
 
-for _p in [
-    settings.sqlite_path.parent,
-    settings.jats_cache_path,
-    settings.meca_temp_path,
-]:
+for _p in [settings.jats_cache_path, settings.meca_temp_path]:
     _p.mkdir(parents=True, exist_ok=True)

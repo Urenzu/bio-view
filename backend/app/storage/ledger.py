@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 from datetime import datetime
 from sqlalchemy import (
-    Boolean, Column, Integer, String, DateTime, JSON, Text, UniqueConstraint, create_engine,
+    BigInteger, Boolean, Column, Integer, String, DateTime, JSON, Text, UniqueConstraint, create_engine,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
@@ -35,7 +35,7 @@ class Paper(Base):
     embedded_in = Column(JSON, default=list)
     status = Column(String, default="pending", index=True)
     error = Column(Text)
-    bytes_downloaded = Column(Integer, default=0)
+    bytes_downloaded = Column(BigInteger, default=0)
     ingested_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint("doi", "version", name="uq_paper_doi_version"),)
@@ -59,7 +59,7 @@ class IngestRun(Base):
     id = Column(Integer, primary_key=True)
     started_at = Column(DateTime, default=datetime.utcnow)
     finished_at = Column(DateTime)
-    bytes_downloaded = Column(Integer, default=0)
+    bytes_downloaded = Column(BigInteger, default=0)
     papers_added = Column(Integer, default=0)
     papers_failed = Column(Integer, default=0)
     notes = Column(Text)
@@ -89,13 +89,7 @@ class Message(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
-_is_sqlite = settings.database_url.startswith("sqlite")
-engine = create_engine(
-    settings.database_url,
-    future=True,
-    pool_pre_ping=not _is_sqlite,
-    connect_args={"check_same_thread": False} if _is_sqlite else {},
-)
+engine = create_engine(settings.database_url, future=True, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 

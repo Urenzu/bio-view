@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from app.api.auth import decode_user_id
-from app.api.deps import get_embedding, get_llm, get_reranker
+from app.api.deps import get_embedding, get_llm
 from app.retrieval.filters import build_where
 from app.retrieval.search import search
 from app.storage.ledger import Conversation, Message, session_scope
@@ -89,7 +89,6 @@ def _build_prompt(query: str, hits) -> str:
 async def ask(req: AskRequest, session_token: str | None = Cookie(default=None)):
     user_id = decode_user_id(session_token)
     embedding = get_embedding()
-    reranker = get_reranker()
     llm = get_llm()
 
     where = build_where(
@@ -98,7 +97,7 @@ async def ask(req: AskRequest, session_token: str | None = Cookie(default=None))
         date_from=req.date_from,
         date_to=req.date_to,
     )
-    hits = search(req.query, embedding, reranker, where=where)
+    hits = search(req.query, embedding, where=where)
     prompt = _build_prompt(req.query, hits)
     retrieved = [{"doi": h.doi, "version": h.version} for h in hits]
 
@@ -117,7 +116,6 @@ async def ask(req: AskRequest, session_token: str | None = Cookie(default=None))
                 content=req.query,
                 gen_model_id=llm.model_id,
                 embedding_model_id=embedding.model_id,
-                reranker_model_id=reranker.model_id,
                 retrieved_doi_versions=retrieved,
             )
         )
@@ -146,8 +144,7 @@ async def ask(req: AskRequest, session_token: str | None = Cookie(default=None))
                     content=text or f"[error: {error}]",
                     gen_model_id=llm.model_id,
                     embedding_model_id=embedding.model_id,
-                    reranker_model_id=reranker.model_id,
-                    retrieved_doi_versions=retrieved,
+                        retrieved_doi_versions=retrieved,
                     hits_json=[h.to_dict() for h in hits],
                 )
             )
