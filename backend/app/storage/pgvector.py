@@ -83,6 +83,26 @@ def get_or_create_table(embedding_model_id: str, dim: int | None = None) -> Tabl
                 f"ON {name} USING gin (authors_str gin_trgm_ops)"
             )
         )
+        # Full-text search column for the lexical arm of hybrid retrieval.
+        # Generated column auto-maintains itself on insert/update, so the rest
+        # of the ingestion path is untouched. Idempotent: ALTER ADD IF NOT EXISTS
+        # is supported on Postgres 12+ (Railway pg16 is fine).
+        # Bump maintenance_work_mem locally so the one-time backfill across
+        # potentially large existing tables doesn't hit the default 64MB cap.
+        conn.execute(sql_text("SET LOCAL maintenance_work_mem = '256MB'"))
+        conn.execute(
+            sql_text(
+                f"ALTER TABLE {name} ADD COLUMN IF NOT EXISTS text_tsv tsvector "
+                f"GENERATED ALWAYS AS (to_tsvector('english', "
+                f"coalesce(title,'') || ' ' || coalesce(text,''))) STORED"
+            )
+        )
+        conn.execute(
+            sql_text(
+                f"CREATE INDEX IF NOT EXISTS {name}_text_tsv_idx "
+                f"ON {name} USING gin (text_tsv)"
+            )
+        )
 
     _table_cache[name] = tbl
     return tbl
@@ -134,6 +154,71 @@ def search(
         """
     )
     params = {**params, "qvec": str(list(qvec)), "lim": limit}
+    with engine.connect() as conn:
+        result = conn.execute(sql, params)
+        return [dict(r._mapping) for r in result]
+
+
+# RRF constant from the original paper; robust enough it rarely needs tuning.
+_RRF_K = 60
+
+
+def search_hybrid(
+    tbl: Table,
+    qvec: list[float],
+    qtext: str,
+    where_sql: str,
+    params: dict[str, Any],
+    limit: int,
+    per_arm: int = 50,
+) -> list[dict[str, Any]]:
+    """Hybrid vector + lexical search fused with Reciprocal Rank Fusion.
+
+    Runs ANN cosine and Postgres FTS in parallel as CTEs in a single round-trip,
+    then fuses by reciprocal-rank. `score` on returned rows is the RRF score,
+    not cosine similarity.
+    """
+    where_clause = f"AND ({where_sql})" if where_sql else ""
+    sql = sql_text(
+        f"""
+        WITH vec AS (
+            SELECT id,
+                   ROW_NUMBER() OVER (ORDER BY embedding <=> CAST(:qvec AS vector)) AS vrank
+            FROM {tbl.name}
+            WHERE TRUE {where_clause}
+            ORDER BY embedding <=> CAST(:qvec AS vector)
+            LIMIT :per_arm
+        ),
+        lex AS (
+            SELECT id,
+                   ROW_NUMBER() OVER (
+                       ORDER BY ts_rank_cd(text_tsv, plainto_tsquery('english', :qtext)) DESC
+                   ) AS lrank
+            FROM {tbl.name}
+            WHERE text_tsv @@ plainto_tsquery('english', :qtext) {where_clause}
+            LIMIT :per_arm
+        ),
+        fused AS (
+            SELECT COALESCE(vec.id, lex.id) AS id,
+                   COALESCE(1.0 / ({_RRF_K} + vec.vrank), 0)
+                   + COALESCE(1.0 / ({_RRF_K} + lex.lrank), 0) AS score
+            FROM vec FULL OUTER JOIN lex USING (id)
+        )
+        SELECT t.doi, t.version, t.source, t.subject, t.title, t.section,
+               t.posted_date, t.authors_str, t.text, fused.score
+        FROM fused
+        JOIN {tbl.name} t USING (id)
+        ORDER BY fused.score DESC
+        LIMIT :lim
+        """
+    )
+    params = {
+        **params,
+        "qvec": str(list(qvec)),
+        "qtext": qtext,
+        "per_arm": per_arm,
+        "lim": limit,
+    }
     with engine.connect() as conn:
         result = conn.execute(sql, params)
         return [dict(r._mapping) for r in result]

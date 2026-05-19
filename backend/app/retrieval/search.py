@@ -32,20 +32,23 @@ def _adaptive_cut(
     max_k: int,
     score_floor: float,
 ) -> list[dict]:
-    """Trim a score-desc-sorted list using top-relative floor + largest-gap.
+    """Trim a score-desc-sorted list using relative floor + largest-gap.
 
     1. Cap at max_k.
-    2. Drop anything more than `score_floor` below the top score.
+    2. Drop anything whose score is below `(1 - score_floor) * top_score`.
+       Using a fractional floor makes this scale-invariant — works for cosine
+       similarity (~0-1) and RRF (~0-0.03) alike without retuning.
     3. Among remaining (beyond min_k), cut at the largest consecutive gap.
     """
     if not rows:
         return []
     rows = rows[:max_k]
     top = rows[0]["score"]
+    threshold = top * (1.0 - score_floor) if top > 0 else top
 
     cap = len(rows)
     for i, r in enumerate(rows):
-        if r["score"] < top - score_floor:
+        if r["score"] < threshold:
             cap = i
             break
     rows = rows[:cap]
@@ -79,7 +82,7 @@ def search(
         params = {**params, "authors_contains": f"%{authors_contains}%"}
         where_sql = f"({where_sql}) AND {extra}" if where_sql else extra
 
-    rows = pg.search(tbl, qvec, where_sql, params, top_k)
+    rows = pg.search_hybrid(tbl, qvec, query, where_sql, params, top_k)
     if not rows:
         return []
 

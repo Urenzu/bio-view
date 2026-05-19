@@ -1,4 +1,5 @@
 import json
+import re
 from fastapi import APIRouter, Cookie
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
@@ -26,32 +27,41 @@ SYSTEM_PROMPT = (
     "excerpts. Preprints are not peer-reviewed; treat them as primary sources, "
     "not established consensus.\n"
     "\n"
+    "Output structure (use Markdown):\n"
+    "1. **Answer** — one or two sentences giving the direct answer up front, "
+    "with inline citations.\n"
+    "2. **Evidence** — short bullet list. Each bullet states one finding, the "
+    "study context in parentheses (e.g. *in vitro*, mouse model, human cohort "
+    "n=120, cell line), and ends with [DOI:<doi>]. Preserve exact numerics: "
+    "effect sizes, p-values, sample sizes, doses, concentrations.\n"
+    "3. **Limitations** — one line. Note when evidence is thin (single preprint, "
+    "small n, preclinical only, conflicting results, indirect inference). Omit "
+    "only if every claim is well-supported by multiple excerpts.\n"
+    "\n"
     "How to answer:\n"
-    "- If the excerpts contain relevant information, ground your answer in them. "
-    "Every factual claim drawn from an excerpt ends with an inline citation in "
-    "the form [DOI:<doi>]. If a claim draws from multiple excerpts, cite each.\n"
-    "- If excerpts disagree, report the disagreement and cite each side.\n"
-    "- If the excerpts only partially cover the question, answer the supported "
-    "part with citations, and clearly mark the unsupported part as 'not covered "
-    "by the retrieved excerpts' before adding any general context.\n"
-    "- If the excerpts are unrelated or empty, you may still respond helpfully: "
-    "say briefly that the corpus did not surface relevant papers, then offer a "
-    "short general-knowledge answer if you have one, clearly prefaced with "
-    "'Outside the corpus:'. Suggest 1–2 reformulated queries the user could try.\n"
-    "- For conversational or meta questions ('what is this?', 'what can I ask?', "
-    "'hello'), answer naturally without citations. You don't need to force "
-    "paper references when none apply.\n"
+    "- Ground every factual claim in the excerpts. Each claim ends with an "
+    "inline [DOI:<doi>] citation; multi-source claims cite each source.\n"
+    "- If excerpts disagree, surface the disagreement in Evidence and call it "
+    "out in Limitations.\n"
+    "- If excerpts partially cover the question, answer the supported part with "
+    "citations, then add a short 'Outside the corpus:' paragraph for background "
+    "if helpful. Never mix cited and uncited claims in the same sentence.\n"
+    "- If excerpts are unrelated or empty, skip the structured format. Say "
+    "briefly the corpus did not surface relevant papers, give a short 'Outside "
+    "the corpus:' answer if you have one, and suggest 1–2 reformulated queries.\n"
+    "- For conversational or meta questions ('what is this?', 'hello'), answer "
+    "naturally in plain prose without the structured format or citations.\n"
     "\n"
     "Citations:\n"
-    "- Only cite DOIs that appear in the provided excerpts — never fabricate or "
-    "guess a DOI.\n"
+    "- Only cite DOIs that appear in the provided excerpts — never fabricate.\n"
     "- Excerpts often mention other studies by author name (e.g. 'Smith et al. "
     "2020 found...'). Those are references inside a retrieved paper, not papers "
-    "you retrieved. Do NOT list them as separate findings and do NOT assign them "
-    "a DOI. Summarise only what the retrieved excerpts themselves report.\n"
+    "you retrieved. Do NOT list them as separate findings or assign them a DOI. "
+    "Summarise only what the retrieved excerpts themselves report.\n"
     "\n"
-    "Style: direct and concise. Quote short phrases when wording matters "
-    "(effect sizes, definitions).\n"
+    "Style: direct, precise, no hedging filler ('it is important to note', 'as "
+    "an AI'). Quote short phrases verbatim when wording matters. Prefer "
+    "specifics over generalities.\n"
 )
 
 # ~12k chars leaves ample room for the system prompt + a full LLM response within
@@ -83,6 +93,31 @@ def _build_prompt(query: str, hits) -> str:
 
     ctx = "\n\n---\n\n".join(blocks) if blocks else "(no relevant context found)"
     return f"Context:\n{ctx}\n\nQuestion: {query}\n\nAnswer with citations:"
+
+
+# Tolerant matcher for inline DOI citations. Accepts [DOI:xxx], [doi: xxx],
+# and trailing punctuation. DOIs themselves are matched up to a closing bracket
+# or whitespace so we don't over-grab.
+_DOI_CITE_RE = re.compile(r"\[\s*DOI\s*:\s*([^\]\s]+?)\s*\]", re.IGNORECASE)
+
+
+def _validate_citations(text: str, allowed_dois: set[str]) -> tuple[str, list[str]]:
+    """Replace any [DOI:x] whose DOI isn't in `allowed_dois` with [DOI:†].
+
+    Returns (cleaned_text, list_of_fabricated_dois). DOI comparison is
+    case-insensitive since publishers vary on casing.
+    """
+    allowed_lc = {d.lower() for d in allowed_dois}
+    fabricated: list[str] = []
+
+    def _sub(m: re.Match) -> str:
+        doi = m.group(1).rstrip(".,;:)")
+        if doi.lower() in allowed_lc:
+            return f"[DOI:{doi}]"
+        fabricated.append(doi)
+        return "[DOI:†]"
+
+    return _DOI_CITE_RE.sub(_sub, text), fabricated
 
 
 @router.post("/ask")
@@ -133,18 +168,25 @@ async def ask(req: AskRequest, session_token: str | None = Cookie(default=None))
         except Exception as e:
             error = f"{type(e).__name__}: {e}"
             yield {"event": "error", "data": json.dumps({"message": error})}
+        raw_text = "".join(collected)
+        allowed = {h.doi for h in hits}
+        cleaned_text, fabricated = _validate_citations(raw_text, allowed)
+        if fabricated:
+            yield {
+                "event": "fabricated_dois",
+                "data": json.dumps({"dois": fabricated}),
+            }
         yield {"event": "done", "data": ""}
 
-        text = "".join(collected)
         with session_scope() as s:
             s.add(
                 Message(
                     conversation_id=conv_id,
                     role="assistant",
-                    content=text or f"[error: {error}]",
+                    content=cleaned_text or f"[error: {error}]",
                     gen_model_id=llm.model_id,
                     embedding_model_id=embedding.model_id,
-                        retrieved_doi_versions=retrieved,
+                    retrieved_doi_versions=retrieved,
                     hits_json=[h.to_dict() for h in hits],
                 )
             )

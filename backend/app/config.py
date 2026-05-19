@@ -70,8 +70,9 @@ class Settings(BaseSettings):
     retrieval_top_k: int = 50
     result_min_k: int = 2
     result_max_k: int = 15
-    # Cosine similarity floor relative to top hit (drop hits whose score is more
-    # than this much below the top score). Range ~[0.0, 1.0]; tune empirically.
+    # Fractional score floor: drop hits below (1 - score_floor) * top_score.
+    # Scale-invariant, so works for cosine similarity and RRF scores alike.
+    # 0.15 = "keep hits within 15% of the top score". Tune empirically.
     score_floor: float = 0.15
 
     @property
